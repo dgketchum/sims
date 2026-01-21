@@ -10,6 +10,7 @@ This package is a NumPy/xarray port of [openet-sims](https://github.com/Open-ET/
 - No Google Earth Engine dependency - runs on local/cloud rasters
 - Uses NumPy/xarray instead of ee.Image operations
 - Pluggable data sources (local files, STAC APIs)
+- Requires crop type (CDL) inputs for parity with OpenET SIMS outputs
 
 If you use this package in research, please cite both the original SIMS algorithm papers and OpenET.
 
@@ -31,6 +32,7 @@ pip install pystac-client planetary-computer stackstac rioxarray
 ```python
 from shapely.geometry import box
 from sims import STACSource, LandsatImage
+from sims.ancillary import get_crop_type, resample_to_landsat
 
 # Define area of interest
 aoi = box(-120.5, 36.8, -120.4, 36.9)  # lon_min, lat_min, lon_max, lat_max
@@ -46,8 +48,13 @@ scene_ids = source.search_scenes(
     max_cloud_cover=20.0
 )
 
+# Get crop type (CDL) and align to the Landsat grid
+raw_cdl = get_crop_type(aoi, year=2023)
+template = source.load_band(scene_ids[0], 'red', geometry=aoi)
+crop_type = resample_to_landsat(raw_cdl, template)
+
 # Process first scene
-image = LandsatImage(source, scene_ids[0], geometry=aoi)
+image = LandsatImage(source, scene_ids[0], geometry=aoi, crop_type=crop_type)
 
 # Get ET fraction
 etf = image.et_fraction
@@ -62,15 +69,20 @@ et = compute_et(etf.values, et_reference=6.0)  # 6 mm/day reference ET
 
 ```python
 from shapely.geometry import box
-from sims import process_scene, search_and_process
+from sims import STACSource, process_scene, search_and_process
+from sims.ancillary import get_crop_type, resample_to_landsat
 
 aoi = box(-120.5, 36.8, -120.4, 36.9)
+raw_cdl = get_crop_type(aoi, year=2023)
+template = STACSource().load_band('LC09_L2SP_042034_20230615_02_T1', 'red', geometry=aoi)
+crop_type = resample_to_landsat(raw_cdl, template)
 
 # Process a single scene with reference ET
 result = process_scene(
     scene_id='LC09_L2SP_042034_20230615_02_T1',
     geometry=aoi,
     et_reference=6.0,  # mm/day
+    crop_type=crop_type,
 )
 
 print(f"Date: {result['date']}")
@@ -83,6 +95,7 @@ results = search_and_process(
     end_date='2023-08-31',
     max_cloud_cover=30.0,
     et_reference=6.0,
+    crop_type=crop_type,
     max_scenes=10,
 )
 
@@ -94,10 +107,12 @@ for r in results:
 
 ```python
 from sims import STACSource, LandsatImage
-from sims.ancillary import get_crop_type
+from sims.ancillary import get_crop_type, resample_to_landsat
 
 # Get crop type for the area
 crop_type = get_crop_type(aoi, year=2023)
+template = STACSource().load_band(scene_ids[0], 'red', geometry=aoi)
+crop_type = resample_to_landsat(crop_type, template)
 
 # Process with crop-specific coefficients
 image = LandsatImage(
@@ -105,7 +120,7 @@ image = LandsatImage(
     scene_id=scene_ids[0],
     geometry=aoi,
     crop_type=crop_type,
-    use_crop_type_kc=False,  # Use class-based Kc
+    use_crop_type_kc=False,  # Use class-based Kc with vine seasonal logic
 )
 
 etf = image.et_fraction
@@ -158,9 +173,10 @@ sims/
 ## References
 
 **Algorithm:**
+- Allen, R. G., & Pereira, L. S. (2009). Estimating crop coefficients from fraction of ground cover and height. *Irrigation Science*, 28(1), 17-34.
 - Melton, F. S., et al. (2012). Satellite Irrigation Management Support with the Terrestrial Observation and Prediction System. *IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing*, 5(6), 1709-1721. [doi:10.1109/JSTARS.2012.2214474](https://doi.org/10.1109/JSTARS.2012.2214474)
 - Pereira, L. S., et al. (2020). Prediction of basal crop coefficients from fraction of ground cover and height. *Agricultural Water Management*. [doi:10.1016/j.agwat.2020.106197](https://doi.org/10.1016/j.agwat.2020.106197)
-- Allen, R. G., & Pereira, L. S. (2009). Estimating crop coefficients from fraction of ground cover and height. *Irrigation Science*, 28(1), 17-34.
+- Melton, F. S., et al. (2022). OpenET: Filling a critical data gap in water management for the western United States. *JAWRA Journal of the American Water Resources Association*, 58(6), 971-994.
 
 **Implementation:**
 - [openet-sims](https://github.com/Open-ET/openet-sims) - Original Earth Engine implementation by the OpenET team

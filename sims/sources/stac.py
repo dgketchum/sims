@@ -266,8 +266,21 @@ class STACSource(DataSource):
         # Get CRS from item
         epsg = self._get_epsg(item)
 
-        # Get bounds for clipping
-        bounds = geometry.bounds if geometry is not None else None
+        # Get bounds for clipping in native CRS if possible
+        bounds = None
+        if geometry is not None:
+            bounds_geom = geometry
+            if epsg and epsg != 4326:
+                try:
+                    from pyproj import Transformer
+                    from shapely.ops import transform as shp_transform
+                    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+                    bounds_geom = shp_transform(lambda x, y: transformer.transform(x, y), geometry)
+                except Exception:
+                    warnings.warn(
+                        "Failed to reproject geometry to scene CRS; clipping in WGS84 instead."
+                    )
+            bounds = bounds_geom.bounds
 
         # Use stackstac to load the band
         with warnings.catch_warnings():
@@ -277,8 +290,8 @@ class STACSource(DataSource):
                 [item],
                 assets=[resolved_band],
                 bounds=bounds,
-                epsg=4326,  # Output in WGS84 to match input bounds
-                resolution=0.00027,  # ~30m in degrees at mid-latitudes
+                epsg=epsg or 4326,
+                resolution=None,  # Use native resolution
                 chunksize=512,
             )
 
@@ -324,8 +337,21 @@ class STACSource(DataSource):
         # Get CRS from item
         epsg = self._get_epsg(item)
 
-        # Get bounds for clipping
-        bounds = geometry.bounds if geometry is not None else None
+        # Get bounds for clipping in native CRS if possible
+        bounds = None
+        if geometry is not None:
+            bounds_geom = geometry
+            if epsg and epsg != 4326:
+                try:
+                    from pyproj import Transformer
+                    from shapely.ops import transform as shp_transform
+                    transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+                    bounds_geom = shp_transform(lambda x, y: transformer.transform(x, y), geometry)
+                except Exception:
+                    warnings.warn(
+                        "Failed to reproject geometry to scene CRS; clipping in WGS84 instead."
+                    )
+            bounds = bounds_geom.bounds
 
         # Use stackstac to load all bands at once
         with warnings.catch_warnings():
@@ -335,8 +361,8 @@ class STACSource(DataSource):
                 [item],
                 assets=resolved_bands,
                 bounds=bounds,
-                epsg=4326,  # Output in WGS84 to match input bounds
-                resolution=0.00027,  # ~30m in degrees at mid-latitudes
+                epsg=epsg or 4326,
+                resolution=None,  # Use native resolution
                 chunksize=512,
             )
 

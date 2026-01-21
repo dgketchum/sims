@@ -54,6 +54,9 @@ def process_scene(
     """
     source = STACSource()
 
+    if crop_type is None:
+        raise ValueError("crop_type is required for SIMS ETf. Provide CDL-derived crop_type for the scene.")
+
     image = LandsatImage(
         source=source,
         scene_id=scene_id,
@@ -90,6 +93,7 @@ def search_and_process(
     max_cloud_cover: float = 30.0,
     et_reference: Optional[Union[float, Dict[str, float]]] = None,
     max_scenes: Optional[int] = None,
+    crop_type: Optional[xr.DataArray] = None,
 ) -> List[Dict[str, Any]]:
     """
     Search for scenes and process all matching Landsat imagery.
@@ -109,6 +113,8 @@ def search_and_process(
         If dict, maps date strings to ET values.
     max_scenes : int, optional
         Maximum number of scenes to process.
+    crop_type : xr.DataArray, optional
+        CDL crop type codes matching geometry; required for SIMS ETf.
 
     Returns
     -------
@@ -116,6 +122,9 @@ def search_and_process(
         Results for each processed scene.
     """
     source = STACSource()
+
+    if crop_type is None:
+        raise ValueError("crop_type is required for SIMS ETf. Provide CDL-derived crop_type for the area.")
 
     # Search for scenes
     scene_ids = source.search_scenes(
@@ -146,6 +155,7 @@ def search_and_process(
                 scene_id=scene_id,
                 geometry=geometry,
                 et_reference=etr,
+                crop_type=crop_type,
             )
             results.append(result)
 

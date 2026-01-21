@@ -45,6 +45,8 @@ def et_fraction(
     ls_stop: Optional[ArrayLike] = None,
     reflectance_type: str = 'SR',
     use_crop_type_kc: bool = False,
+    mask_non_ag: bool = True,
+    water_kc_flag: bool = True,
 ) -> ArrayLike:
     """
     Compute SIMS ET fraction (crop coefficient) from NDVI and crop type.
@@ -61,9 +63,10 @@ def et_fraction(
     doy : array-like, optional
         Day of year (1-366). Required for vine/tree crops with seasonal adjustments.
     h_max : array-like, optional
-        Maximum plant height in meters. Required if use_crop_type_kc=True.
+        Maximum plant height in meters. Required for vine crops and tree/vine
+        height-based seasonal adjustments.
     m_l : array-like, optional
-        Density coefficient. Required if use_crop_type_kc=True.
+        Density coefficient. Required for height-based row/tree adjustments.
     fr_mid : array-like, optional
         Mid-season reduction factor (default: 1.0).
     fr_end : array-like, optional
@@ -77,6 +80,11 @@ def et_fraction(
     use_crop_type_kc : bool
         If True, use crop-type-specific Kc with height/density parameters.
         If False, use generic crop-class Kc equations.
+    mask_non_ag : bool
+        If True, mask non-agricultural pixels (crop_class == 0) as NaN.
+    water_kc_flag : bool
+        If True, set Kc=1.05 for water pixels (ndvi < 0 and crop_class == 0)
+        before optional masking.
 
     Returns
     -------
@@ -115,20 +123,42 @@ def et_fraction(
 
     # Apply crop-class-specific Kc calculations
     if np.any(is_class_1):
+        row_generic = kc_row_crop(fc)
         if use_crop_type_kc and h_max is not None and m_l is not None:
-            kc = np.where(is_class_1, kc_row_crop_with_height(fc, h_max, m_l, fr_mid), kc)
+            valid = (~np.isnan(h_max)) & (~np.isnan(m_l))
+            kc_height = kc_row_crop_with_height(fc, h_max, m_l, fr_mid)
+            kc = np.where(is_class_1 & valid, kc_height, row_generic)
         else:
-            kc = np.where(is_class_1, kc_row_crop(fc), kc)
+            kc = np.where(is_class_1, row_generic, kc)
 
     if np.any(is_class_2):
-        if use_crop_type_kc and all(v is not None for v in [h_max, m_l, doy, fr_mid, fr_end, ls_start, ls_stop]):
-            kc = np.where(is_class_2, kc_vine(fc, h_max, m_l, doy, fr_mid, fr_end, ls_start, ls_stop), kc)
-        else:
-            kc = np.where(is_class_2, kc_row_crop(fc), kc)
+        required = [h_max, doy, fr_mid, fr_end, ls_start, ls_stop]
+        if any(v is None for v in required):
+            raise ValueError("Vine crops require h_max, doy, fr_mid, fr_end, ls_start, and ls_stop.")
+        vine_valid = (
+            (~np.isnan(h_max)) &
+            (~np.isnan(fr_mid)) &
+            (~np.isnan(fr_end)) &
+            (~np.isnan(ls_start)) &
+            (~np.isnan(ls_stop))
+        )
+        kc_vine_val = kc_vine(fc, h_max, doy, fr_mid, fr_end, ls_start, ls_stop)
+        kc = np.where(is_class_2 & vine_valid, kc_vine_val, kc)
+        if mask_non_ag:
+            kc = np.where(is_class_2 & ~vine_valid, np.nan, kc)
 
     if np.any(is_class_3):
         if use_crop_type_kc and all(v is not None for v in [h_max, m_l, doy, fr_mid, fr_end, ls_start, ls_stop]):
-            kc = np.where(is_class_3, kc_tree_with_height(fc, h_max, m_l, doy, fr_mid, fr_end, ls_start, ls_stop), kc)
+            tree_valid = (
+                (~np.isnan(h_max)) &
+                (~np.isnan(m_l)) &
+                (~np.isnan(fr_mid)) &
+                (~np.isnan(fr_end)) &
+                (~np.isnan(ls_start)) &
+                (~np.isnan(ls_stop))
+            )
+            kc_tree_height = kc_tree_with_height(fc, h_max, m_l, doy, fr_mid, fr_end, ls_start, ls_stop)
+            kc = np.where(is_class_3 & tree_valid, kc_tree_height, kc_tree(fc))
         else:
             kc = np.where(is_class_3, kc_tree(fc), kc)
 
@@ -141,8 +171,12 @@ def et_fraction(
     if np.any(is_class_7):
         kc = np.where(is_class_7, kc_grass_pasture(fc, ndvi), kc)
 
+    if water_kc_flag:
+        kc = np.where(is_class_0 & (ndvi < 0), 1.05, kc)
+
     # Mask non-agricultural pixels
-    kc = np.where(is_class_0, np.nan, kc)
+    if mask_non_ag:
+        kc = np.where(is_class_0, np.nan, kc)
 
     return kc
 
@@ -370,7 +404,6 @@ def kc_tree_with_height(
 def kc_vine(
     fc: ArrayLike,
     h_max: ArrayLike,
-    m_l: ArrayLike,
     doy: ArrayLike,
     fr_mid: ArrayLike,
     fr_end: ArrayLike,
@@ -387,8 +420,6 @@ def kc_vine(
         Fraction of cover (0-1).
     h_max : array-like
         Maximum plant height (meters).
-    m_l : array-like
-        Density coefficient.
     doy : array-like
         Day of year (1-366).
     fr_mid : array-like
@@ -409,15 +440,14 @@ def kc_vine(
     """
     fc = np.asarray(fc)
     h_max = np.asarray(h_max)
-    m_l = np.asarray(m_l)
     doy = np.asarray(doy)
     fr_mid = np.asarray(fr_mid)
     fr_end = np.asarray(fr_end)
     ls_start = np.asarray(ls_start)
     ls_stop = np.asarray(ls_stop)
 
-    # Compute density coefficient for vines (similar to row crops)
-    kd = _kd_vine(fc, h_max, m_l)
+    # Compute density coefficient for vines (Allen & Pereira vine formulation)
+    kd = _kd_vine(fc)
 
     # Compute seasonal reduction factor
     fr = _compute_fr(doy, fr_mid, fr_end, ls_start, ls_stop)
@@ -610,27 +640,24 @@ def _kd_tree(fc: ArrayLike, h_max: ArrayLike, m_l: ArrayLike) -> ArrayLike:
     return np.minimum(kd, 1.0)
 
 
-def _kd_vine(fc: ArrayLike, h_max: ArrayLike, m_l: ArrayLike) -> ArrayLike:
+def _kd_vine(fc: ArrayLike) -> ArrayLike:
     """
     Compute density coefficient (Kd) for vine crops.
 
-    Uses the same formulation as row crops.
+    Uses the vine formulation from Williams & Ayars (2005).
 
     Parameters
     ----------
     fc : array-like
         Fraction of cover (0-1).
-    h_max : array-like
-        Maximum plant height (meters).
-    m_l : array-like
-        Density coefficient.
 
     Returns
     -------
     array-like
         Density coefficient Kd (0-1).
     """
-    return _kd_row_crop(fc, h_max, m_l)
+    fc = np.asarray(fc)
+    return np.minimum(fc * 1.5, np.minimum(fc ** (1 / (1 + 2)), 1.0))
 
 
 def _compute_fr(

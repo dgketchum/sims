@@ -52,7 +52,7 @@ def compute_etf_timeseries(
         Maximum cloud cover percentage for scene selection (0-100).
     crop_type : array-like, optional
         CDL crop type codes matching the geometry of the scenes.
-        If not provided, uses generic NDVI-based Kc.
+        Required for SIMS parity; generate via sims.ancillary.get_crop_type().
     use_crop_type_kc : bool
         If True, use crop-type-specific Kc with height/density parameters.
     min_valid_fraction : float
@@ -93,6 +93,9 @@ def compute_etf_timeseries(
     """
     if stats is None:
         stats = ['mean', 'std', 'count']
+
+    if crop_type is None:
+        raise ValueError("crop_type is required for SIMS ETf. Provide CDL-derived crop_type matching the scenes.")
 
     # Get the bounding box of all geometries for scene search
     bounds = geometries.total_bounds
@@ -184,16 +187,19 @@ def process_scene(
     field_id_column : str
         Column name for field identifiers (if geometries provided).
     crop_type : array-like, optional
-        CDL crop type codes.
+        CDL crop type codes. Required for SIMS parity; generate via sims.ancillary.get_crop_type().
     use_crop_type_kc : bool
         Use crop-type-specific Kc calculations.
 
     Returns
     -------
-    xr.Dataset or pd.DataFrame
+        xr.Dataset or pd.DataFrame
         If geometries is None, returns Dataset with raster products.
         If geometries provided, returns DataFrame with zonal statistics.
     """
+    if crop_type is None:
+        raise ValueError("crop_type is required for SIMS ETf. Provide CDL-derived crop_type for the scene.")
+
     # Get geometry for clipping
     clip_geometry = None
     if geometries is not None:

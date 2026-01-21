@@ -214,9 +214,13 @@ class LandsatImage:
 
         Returns values in range [-1, 1].
         """
+        nir = xr.where(self.nir < 0, 0, self.nir)
+        red = xr.where(self.red < 0, 0, self.red)
+
         # Avoid divide by zero
-        denom = self.nir + self.red
-        ndvi = xr.where(denom != 0, (self.nir - self.red) / denom, 0)
+        denom = nir + red
+        ndvi = xr.where(denom != 0, (nir - red) / denom, 0)
+        ndvi = xr.where((nir < 0.01) & (red < 0.01), 0, ndvi)
         return ndvi.clip(-1, 1)
 
     @cached_property
@@ -364,11 +368,12 @@ class LandsatImage:
             return None
 
         crop_type = np.asarray(self._crop_type)
-        param_array = np.full_like(crop_type, default, dtype=float)
+        fill_value = np.nan if default is None else default
+        param_array = np.full_like(crop_type, fill_value, dtype=float)
 
         for cdl_code, params in CDL.items():
             mask = crop_type == cdl_code
-            param_array = np.where(mask, params.get(param_name, default), param_array)
+            param_array = np.where(mask, params.get(param_name, fill_value), param_array)
 
         return param_array
 
@@ -383,42 +388,35 @@ class LandsatImage:
         ndvi = self.ndvi.values
 
         if self._crop_type is None:
-            # Use generic Kc if no crop type provided
-            etf = model.kc_generic(ndvi)
-        else:
-            crop_class = self.crop_class
-            if isinstance(crop_class, xr.DataArray):
-                crop_class = crop_class.values
+            raise ValueError("crop_type is required for SIMS ETf. Provide CDL-derived crop_type for the scene.")
 
-            # Get crop-specific parameters if using detailed Kc
-            if self._use_crop_type_kc:
-                h_max = self._get_crop_param_array('h_max', 1.0)
-                m_l = self._get_crop_param_array('m_l', 2.0)
-                fr_mid = self._get_crop_param_array('fr_mid', 1.0)
-                fr_end = self._get_crop_param_array('fr_end', 1.0)
-                ls_start = self._get_crop_param_array('ls_start', 1)
-                ls_stop = self._get_crop_param_array('ls_stop', 365)
+        crop_class = self.crop_class
+        if isinstance(crop_class, xr.DataArray):
+            crop_class = crop_class.values
 
-                etf = model.et_fraction(
-                    ndvi=ndvi,
-                    crop_class=crop_class,
-                    doy=self.doy,
-                    h_max=h_max,
-                    m_l=m_l,
-                    fr_mid=fr_mid,
-                    fr_end=fr_end,
-                    ls_start=ls_start,
-                    ls_stop=ls_stop,
-                    reflectance_type='SR',
-                    use_crop_type_kc=True,
-                )
-            else:
-                etf = model.et_fraction(
-                    ndvi=ndvi,
-                    crop_class=crop_class,
-                    reflectance_type='SR',
-                    use_crop_type_kc=False,
-                )
+        if self.doy is None:
+            raise ValueError("Scene DOY is required for SIMS ETf computation.")
+
+        h_max = self._get_crop_param_array('h_max', default=None)
+        m_l = self._get_crop_param_array('m_l', default=None)
+        fr_mid = self._get_crop_param_array('fr_mid', default=1.0)
+        fr_end = self._get_crop_param_array('fr_end', default=1.0)
+        ls_start = self._get_crop_param_array('ls_start', default=1)
+        ls_stop = self._get_crop_param_array('ls_stop', default=365)
+
+        etf = model.et_fraction(
+            ndvi=ndvi,
+            crop_class=crop_class,
+            doy=self.doy,
+            h_max=h_max,
+            m_l=m_l,
+            fr_mid=fr_mid,
+            fr_end=fr_end,
+            ls_start=ls_start,
+            ls_stop=ls_stop,
+            reflectance_type='SR',
+            use_crop_type_kc=self._use_crop_type_kc,
+        )
 
         return xr.DataArray(etf, coords=self.ndvi.coords, dims=self.ndvi.dims)
 
