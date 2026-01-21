@@ -8,17 +8,22 @@ xarray DataArrays and have no I/O dependencies.
 The ET fraction (ETf) is equivalent to the crop coefficient (Kc) in the SIMS
 framework: ETf = Kc = ET / ET_reference.
 
+This is a NumPy port of the Google Earth Engine implementation from openet-sims:
+https://github.com/Open-ET/openet-sims (Apache 2.0 license)
+
 References
 ----------
 Melton, F. S., et al. (2012). Satellite Irrigation Management Support with the
 Terrestrial Observation and Prediction System. IEEE Journal of Selected Topics
 in Applied Earth Observations and Remote Sensing, 5(6), 1709-1721.
+https://doi.org/10.1109/JSTARS.2012.2214474
+
+Pereira, L. S., et al. (2020). Prediction of basal crop coefficients from
+fraction of ground cover and height. Agricultural Water Management.
+https://doi.org/10.1016/j.agwat.2020.106197
 
 Allen, R. G., & Pereira, L. S. (2009). Estimating crop coefficients from
 fraction of ground cover and height. Irrigation Science, 28(1), 17-34.
-
-Ayars, J. E., et al. (2003). Using weighing lysimeters to develop evapotranspiration
-crop coefficients. Irrigation Science, 22(1), 1-9.
 """
 
 from typing import Union, Optional
@@ -445,8 +450,8 @@ def kc_rice(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
 
     Notes
     -----
-    For rice, low NDVI indicates flooded conditions where Kc should be higher
-    than the standard row crop equation would predict.
+    For rice, low NDVI indicates flooded conditions where Kc should be set
+    to 1.05 to account for open water evaporation.
     """
     fc = np.asarray(fc)
     ndvi = np.asarray(ndvi)
@@ -455,8 +460,8 @@ def kc_rice(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
     kc = kc_row_crop(fc)
 
     # Adjust for flooded conditions (low NDVI but high Kc)
-    # When NDVI < 0.3, use minimum of 1.0 to account for standing water
-    kc = np.where(ndvi < 0.3, np.maximum(kc, 1.0), kc)
+    # When NDVI <= 0.14, set Kc to 1.05 to account for standing water
+    kc = np.where(ndvi <= 0.14, 1.05, kc)
 
     return kc
 
@@ -465,7 +470,7 @@ def kc_fallow(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
     """
     Compute crop coefficient for fallow land (Class 6).
 
-    Uses the row crop equation with special handling for very low vegetation.
+    Uses the row crop equation with special handling for low vegetation.
 
     Parameters
     ----------
@@ -481,7 +486,8 @@ def kc_fallow(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
 
     Notes
     -----
-    For fallow, very low NDVI indicates bare soil with minimal ET.
+    For fallow land with low NDVI, Kc is set to the fraction of cover (fc)
+    to better represent sparse vegetation conditions.
     """
     fc = np.asarray(fc)
     ndvi = np.asarray(ndvi)
@@ -489,8 +495,8 @@ def kc_fallow(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
     # Base row crop equation
     kc = kc_row_crop(fc)
 
-    # For very low NDVI (bare soil), set Kc to minimum
-    kc = np.where(ndvi < 0.15, 0.15, kc)
+    # For low NDVI, set Kc to fc (with minimum of 0.01)
+    kc = np.where(ndvi <= 0.35, np.maximum(fc, 0.01), kc)
 
     return kc
 
@@ -499,7 +505,7 @@ def kc_grass_pasture(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
     """
     Compute crop coefficient for grass/pasture (Class 7).
 
-    Similar to fallow but with slightly different low-NDVI handling.
+    Uses the row crop equation with special handling for low vegetation.
 
     Parameters
     ----------
@@ -512,6 +518,11 @@ def kc_grass_pasture(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
     -------
     array-like
         Crop coefficient (Kc).
+
+    Notes
+    -----
+    For grass/pasture with low NDVI (dormant or sparse), Kc is set to the
+    fraction of cover (fc) to better represent reduced transpiration.
     """
     fc = np.asarray(fc)
     ndvi = np.asarray(ndvi)
@@ -519,8 +530,8 @@ def kc_grass_pasture(fc: ArrayLike, ndvi: ArrayLike) -> ArrayLike:
     # Base row crop equation
     kc = kc_row_crop(fc)
 
-    # For very low NDVI (dormant grass), set Kc to minimum
-    kc = np.where(ndvi < 0.15, 0.15, kc)
+    # For low NDVI (dormant grass), set Kc to fc (with minimum of 0.01)
+    kc = np.where(ndvi <= 0.35, np.maximum(fc, 0.01), kc)
 
     return kc
 

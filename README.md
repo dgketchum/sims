@@ -2,6 +2,17 @@
 
 A standalone Python package for computing ET fractions using the SIMS algorithm.
 
+## Attribution
+
+This package is a NumPy/xarray port of [openet-sims](https://github.com/Open-ET/openet-sims), the Google Earth Engine implementation developed by the [OpenET](https://openetdata.org/) team. The algorithm logic and crop coefficients are derived from openet-sims (Apache 2.0 license).
+
+**Key differences from openet-sims:**
+- No Google Earth Engine dependency - runs on local/cloud rasters
+- Uses NumPy/xarray instead of ee.Image operations
+- Pluggable data sources (local files, STAC APIs)
+
+If you use this package in research, please cite both the original SIMS algorithm papers and OpenET.
+
 ## Installation
 
 ```bash
@@ -146,5 +157,11 @@ sims/
 
 ## References
 
-- Melton, F. S., et al. (2012). Satellite Irrigation Management Support. IEEE JSTARS.
-- Allen, R. G., & Pereira, L. S. (2009). Estimating crop coefficients. Irrigation Science.
+**Algorithm:**
+- Melton, F. S., et al. (2012). Satellite Irrigation Management Support with the Terrestrial Observation and Prediction System. *IEEE Journal of Selected Topics in Applied Earth Observations and Remote Sensing*, 5(6), 1709-1721. [doi:10.1109/JSTARS.2012.2214474](https://doi.org/10.1109/JSTARS.2012.2214474)
+- Pereira, L. S., et al. (2020). Prediction of basal crop coefficients from fraction of ground cover and height. *Agricultural Water Management*. [doi:10.1016/j.agwat.2020.106197](https://doi.org/10.1016/j.agwat.2020.106197)
+- Allen, R. G., & Pereira, L. S. (2009). Estimating crop coefficients from fraction of ground cover and height. *Irrigation Science*, 28(1), 17-34.
+
+**Implementation:**
+- [openet-sims](https://github.com/Open-ET/openet-sims) - Original Earth Engine implementation by the OpenET team
+- [OpenET](https://openetdata.org/) - Operational satellite-based ET data for the western U.S.
